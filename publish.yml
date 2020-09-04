@@ -1,0 +1,74 @@
+- hosts: localhost
+  vars_prompt:
+  - name: "tld"
+    prompt: "The top level domain under which subdomains are installed"
+    private: no
+    default: "example.com"
+  - name: "custom_name"
+    prompt: "Publish to your own top level domain (if you have a custom domain)"
+    private: no
+    default: "no"
+  - name: "subdomain"
+    prompt: "The subdomain you want to publish on"
+    private: no
+  - name: "url_to_fetch"
+    prompt: "The url to fetch and save (starting with http/s)"
+    private: no
+    default: "https://example.com"
+
+  vars:
+    aws_tld: "s3-website.eu-central-1.amazonaws.com"
+    aws_region: "{{ lookup('env','aws_default_region') }}"
+    cloudflare_email: "{{ lookup('env','cloudflare_email') }}"
+    cloudflare_token: "{{ lookup('env','cloudflare_token') }}"
+
+  tasks:
+    - set_fact: canonical_domain={{custom_name}}
+      when: custom_name != "no"
+      tags:
+        - setup
+    - set_fact: canonical_domain={{subdomain}}.appt.guru
+      when: custom_name == "no"
+      tags:
+        - setup
+    - debug: msg="Going to publish to {{canonical_domain}}"
+      tags:
+        - setup
+
+    - debug: msg="node ssg.js {{url_to_fetch}}"
+
+    - name: Generate site
+      command: "node ssg.js {{url_to_fetch}}"
+
+    - name: Upload static site to S3 to custom domain
+      s3_website:
+        name: "{{canonical_domain}}"
+        state: present
+        region: "{{aws_default_region}}"
+    - name: Redirect subdomain to custom domain
+      s3_website:
+        name: "{{subdomain}}"
+        redirect_all_requests: "{{custom_name}}"
+        state: present
+      when: custom_name|bool
+
+    - name: Upload static site to S3 subdomain
+      s3_website:
+        name: "{{subdomain}}"
+        state: present
+      when: not custom_name|bool
+    # - name: Upload site files
+    #   s3_bucket:
+
+    - name: setup subdomain dns
+      cloudflare_dns:
+        zone: appt.guru
+        type: CNAME
+        name: "{{subdomain}}"
+        value: "{{subdomain}}.appt.guru.{{aws_tld}}"
+        proxied: yes
+        account_email: "{{cloudflare_email}}"
+        account_api_token: "{{cloudflare_token}}"
+        state: present
+      tags:
+        - dns

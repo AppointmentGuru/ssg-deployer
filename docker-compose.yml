@@ -1,0 +1,13 @@
+---
+  version: '3'
+  services:
+    deployr:
+      build: .
+      volumes:
+        - ./outputs:/code/outputs
+        - ./publish.yml/code/publish.yml
+        - ./ssg.js:/code/ssg.js
+      env_file:
+        - env.production
+      command: ansible-playbook publish.yml
+
