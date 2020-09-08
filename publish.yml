@@ -3,7 +3,6 @@
   - name: "tld"
     prompt: "The top level domain under which subdomains are installed"
     private: no
-    default: "example.com"
   - name: "custom_name"
     prompt: "Publish to your own top level domain (if you have a custom domain)"
     private: no
@@ -18,9 +17,11 @@
 
   vars:
     aws_tld: "s3-website.eu-central-1.amazonaws.com"
-    aws_region: "{{ lookup('env','aws_default_region') }}"
+    # aws_region: "{{ lookup('env', 'aws_default_region') }}"
+    aws_region: "eu-central-1"
     cloudflare_email: "{{ lookup('env','cloudflare_email') }}"
     cloudflare_token: "{{ lookup('env','cloudflare_token') }}"
+
 
   tasks:
     - set_fact: canonical_domain={{custom_name}}
@@ -31,7 +32,7 @@
       when: custom_name == "no"
       tags:
         - setup
-    - debug: msg="Going to publish to {{canonical_domain}}"
+    - debug: msg="Going to publish to {{canonical_domain}} in region {{aws_region}}"
       tags:
         - setup
 
@@ -40,35 +41,46 @@
     - name: Generate site
       command: "node ssg.js {{url_to_fetch}}"
 
-    - name: Upload static site to S3 to custom domain
+    - name: Ensure s3 bucket exists
+      s3_bucket:
+        name: "{{canonical_domain}}"
+        state: present
+        region: "{{aws_region}}"
+
+    - name: Configure bucket as a website
       s3_website:
         name: "{{canonical_domain}}"
         state: present
-        region: "{{aws_default_region}}"
-    - name: Redirect subdomain to custom domain
+        region: "{{aws_region}}"
+
+    - name: "[if custom domain] Redirect subdomain to custom domain"
       s3_website:
-        name: "{{subdomain}}"
+        name: "{{subdomain}}.{{tld}}"
         redirect_all_requests: "{{custom_name}}"
         state: present
+        region: "{{aws_region}}"
       when: custom_name|bool
 
-    - name: Upload static site to S3 subdomain
-      s3_website:
-        name: "{{subdomain}}"
-        state: present
-      when: not custom_name|bool
-    # - name: Upload site files
-    #   s3_bucket:
+    - name: Upload site
+      aws_s3:
+        bucket: "{{canonical_domain}}"
+        object: "index.html"
+        src: "outputs/index.html"
+        mode: put
+        permission: "public-read"
+        region: "{{aws_region}}"
 
-    - name: setup subdomain dns
+    - name: point DNS at site
       cloudflare_dns:
         zone: appt.guru
         type: CNAME
         name: "{{subdomain}}"
-        value: "{{subdomain}}.appt.guru.{{aws_tld}}"
+        value: "{{canonical_domain}}.s3-website.{{aws_region}}.amazonaws.com"
         proxied: yes
         account_email: "{{cloudflare_email}}"
         account_api_token: "{{cloudflare_token}}"
         state: present
       tags:
         - dns
+
+    - debug: msg="Site available at {{canonical_domain}}"

@@ -31,8 +31,4 @@ docker-compose run --rm deployr ansible-playbook
 docker-compose run --rm deployr node ssg https://example.com
 ```
 
-## TODO:
 
-* improve arguments in ssg.js
-* Instead of passing it a domain, you whould pass it a URI to a sitemap.json file which would specify which pages it must fetch
-* In `publish.yml`, write the bit that actually uploads the files to s3
